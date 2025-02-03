@@ -474,7 +474,12 @@ public class  MigrationClient {
 		if (issue.isOriginalAuthorMissing()) {
 			body = "**(original author missing)**";
 		} else {
-			body = "**" + reporterLink + "**";
+			String gitHubName = jiraToGithubUsername.get(issue.getFields().getReporter().getKey());
+			if (gitHubName == null) {
+				body = "**" + reporterLink + "**";
+			} else {
+				body = "@" + gitHubName;
+			}
 		}
 		body += " opened **" + jiraIssueLink + "**"
 			+ (fields.getComment().hasRestrictedComments() ? "*" : "")
@@ -655,7 +660,13 @@ public class  MigrationClient {
 		for (JiraComment jiraComment : fields.getComment().getVisibleComments()) {
 			GithubComment comment = new GithubComment();
 			JiraUser author = jiraComment.getAuthor();
-			String body = "**" + engine.link(author.getDisplayName(), author.getBrowserUrl()) + "** commented\n\n";
+			String githubName = jiraToGithubUsername.get(author.getKey());
+			String body;
+			if (githubName == null) {
+				body = "**" + engine.link(author.getDisplayName(), author.getBrowserUrl()) + "** commented\n\n";
+			} else {
+				body = "@" + githubName + " commented\n\n";
+			}
 			body += engine.convert(jiraComment.getBody());
 			comment.setBody(body);
 			comment.setCreatedAt(jiraComment.getCreated());
