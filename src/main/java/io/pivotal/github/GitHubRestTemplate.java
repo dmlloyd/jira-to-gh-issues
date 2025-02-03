@@ -16,11 +16,13 @@
 package io.pivotal.github;
 
 import java.io.IOException;
+import java.net.SocketException;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 
 import io.pivotal.util.RateLimitHelper;
+import org.apache.http.NoHttpResponseException;
 import org.apache.logging.log4j.Logger;
 
 import org.springframework.http.HttpHeaders;
@@ -29,6 +31,7 @@ import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RequestCallback;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.ResponseExtractor;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -73,6 +76,26 @@ public class GitHubRestTemplate extends RestTemplate {
 				rateLimitHelper.obtainPermitToCall();
 			}
 			return super.doExecute(url, method, decoratedRequestCallback, responseExtractor);
+		}
+		catch (ResourceAccessException ex) {
+			if (ex.getCause() instanceof SocketException e2) {
+				if (e2.getMessage().equalsIgnoreCase("Connection reset")) {
+					try {
+						Thread.sleep(3000L);
+					} catch (InterruptedException e) {
+						// ignored
+					}
+					return doExecuteExtended(url, method, requestCallback, responseExtractor);
+				}
+			} else if (ex.getCause() instanceof NoHttpResponseException) {
+				try {
+					Thread.sleep(3000L);
+				} catch (InterruptedException e) {
+					// ignored
+				}
+				return doExecuteExtended(url, method, requestCallback, responseExtractor);
+			}
+			throw ex;
 		}
 		catch (HttpClientErrorException ex) {
 			HttpHeaders headers = ex.getResponseHeaders();

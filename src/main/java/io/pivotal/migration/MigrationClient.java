@@ -327,7 +327,7 @@ public class  MigrationClient {
 		}
 
 		logger.info("{} backport issue holders to create", backportMap.size());
-		if (backportMap.isEmpty()) {
+		if (backportMap.isEmpty() || true) {
 			return;
 		}
 		List<ImportedIssue> backportIssueHolders = new ArrayList<>(backportMap.size());
@@ -407,9 +407,23 @@ public class  MigrationClient {
 		Map<String, JiraUser> userLookup = new HashMap<>();
 		for (JiraIssue issue : issues) {
 			Fields fields = issue.getFields();
-			userLookup.put(fields.getReporter().getKey(), fields.getReporter());
+			JiraUser user = fields.getReporter();
+			if (user == null) {
+				user = fields.getAssignee();
+				if (user == null) {
+					throw new IllegalStateException("Issue " + issue.getKey() + " (" + issue.getId() + ") has no reporter or assignee");
+				}
+				fields.setReporter(user);
+				issue.setOriginalAuthorMissing(true);
+			}
+			userLookup.put(user.getKey(), user);
 			for (JiraComment comment : fields.getComment().getComments()) {
-				userLookup.put(comment.getAuthor().getKey(), comment.getAuthor());
+				JiraUser commentUser = comment.getAuthor();
+				if (commentUser == null) {
+					commentUser = user;
+					comment.setAuthor(user);
+				}
+				userLookup.put(commentUser.getKey(), commentUser);
 			}
 		}
 		return userLookup;
@@ -456,9 +470,15 @@ public class  MigrationClient {
 		JiraUser reporter = fields.getReporter();
 		String reporterLink = engine.link(reporter.getDisplayName(), reporter.getBrowserUrl());
 		String jiraIssueLink = engine.link(issue.getKey(), issue.getBrowserUrl() + "?redirect=false");
-		String body = "**" + reporterLink + "** opened **" + jiraIssueLink + "**"
-				+ (fields.getComment().hasRestrictedComments() ? "*" : "")
-				+ " and commented\n";
+		String body;
+		if (issue.isOriginalAuthorMissing()) {
+			body = "**(original author missing)**";
+		} else {
+			body = "**" + reporterLink + "**";
+		}
+		body += " opened **" + jiraIssueLink + "**"
+			+ (fields.getComment().hasRestrictedComments() ? "*" : "")
+			+ " and commented\n";
 		String description = fields.getDescription();
 		if(description != null) {
 			// Remove trailing horizontal line
@@ -600,9 +620,9 @@ public class  MigrationClient {
 				references.add("pull request " + fields.getPullRequestUrl());
 			}
 		}
-		if (!issue.getCommitUrls().isEmpty()) {
-			references.add(issue.getCommitUrls().stream().collect(Collectors.joining(", ", "commits ", "")));
-		}
+//		if (!issue.getCommitUrls().isEmpty()) {
+//			references.add(issue.getCommitUrls().stream().collect(Collectors.joining(", ", "commits ", "")));
+//		}
 		if (!references.isEmpty()) {
 			jiraDetails += references.stream().collect(Collectors.joining(", and ", "\n**Referenced from:** ", "\n"));
 		}

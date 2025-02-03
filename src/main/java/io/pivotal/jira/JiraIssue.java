@@ -39,7 +39,7 @@ public class JiraIssue {
 	public static final String FIELD_NAMES = "summary,comment,assignee,components,created,creator," +
 			"description,versions,fixVersions,issuetype,reporter,resolution,status,issuelinks," +
 			"resolution,updated,parent,subtasks,labels,attachment,watches," +
-			"customfield_10120,customfield_10684,security,priority";
+			"security,priority";
 
 
 	String id;
@@ -50,6 +50,7 @@ public class JiraIssue {
 
 	Fields fields;
 
+	boolean originalAuthorMissing;
 
 	/** Initialized via {@link #initFixAndBackportVersions()} **/
 	JiraFixVersion fixVersion;
@@ -69,7 +70,7 @@ public class JiraIssue {
 	}
 
 	public String getBrowserUrlFor(String key) {
-		return UriComponentsBuilder.fromHttpUrl(self).replacePath("jira/browse/").path(key).toUriString();
+		return UriComponentsBuilder.fromHttpUrl(self).replacePath("browse/").path(key).toUriString();
 	}
 
 	/**

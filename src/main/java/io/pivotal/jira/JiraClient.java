@@ -28,6 +28,7 @@ import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.reactivestreams.Publisher;
+import org.springframework.http.MediaType;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -36,6 +37,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.util.retry.Retry;
 
 /**
  * @author Rob Winch
@@ -79,22 +81,33 @@ public class JiraClient {
 
 
 	public JiraProject findProject(String id) {
-		return webClient.get().uri("/project/{id}", id).retrieve().bodyToMono(JiraProject.class).block();
+		return webClient.get().uri("/project/{id}", id).retrieve().bodyToMono(JiraProject.class)
+			.retryWhen(Retry.backoff(10, Duration.ofSeconds(5)).filter(
+				t -> t instanceof WebClientResponseException.TooManyRequests
+			)
+		).block();
 	}
 
 	public List<JiraIssue> findIssues(String jql) {
-		return getAndCollectIssues(jql).block();
+		return getAndCollectIssues(jql)
+			.retryWhen(Retry.backoff(10, Duration.ofSeconds(5)).filter(
+				t -> t instanceof WebClientResponseException.TooManyRequests
+			))
+			.block();
 	}
 
 	public List<JiraIssue> findIssuesVotesAndCommits(
 			String jql, Function<List<JiraIssue>, List<JiraIssue>> filterIssuesToImport) {
 
 		return getAndCollectIssues(jql)
-				.flatMap(issues -> {
-					// Load votes and commits only for issues not already imported
-					return populateVotesAndCommits(filterIssuesToImport.apply(issues))
-							.then(Mono.just(issues));
-				})
+//				.flatMap(issues -> {
+//					// Load votes and commits only for issues not already imported
+//					return populateVotesAndCommits(filterIssuesToImport.apply(issues))
+//							.then(Mono.just(issues));
+//				})
+				.retryWhen(Retry.backoff(10, Duration.ofSeconds(5)).filter(
+					t -> t instanceof WebClientResponseException.TooManyRequests
+				))
 				.block();
 	}
 
@@ -119,6 +132,9 @@ public class JiraClient {
 				.uri("/issue/{issueKey}/remotelink", issue.getKey())
 				.retrieve()
 				.bodyToFlux(RemoteLink.class)
+				.retryWhen(Retry.backoff(10, Duration.ofSeconds(5)).filter(
+					t -> t instanceof WebClientResponseException.TooManyRequests
+				))
 				.collectList()
 				.map(
 						remoteLinks -> {
@@ -146,6 +162,9 @@ public class JiraClient {
 							.uri("/search?maxResults=1000&startAt={0}&jql={jql}&fields=" + JiraIssue.FIELD_NAMES, startAt, jql)
 							.retrieve()
 							.bodyToMono(JiraSearchResult.class)
+							.retryWhen(Retry.backoff(10, Duration.ofSeconds(5)).filter(
+								t -> t instanceof WebClientResponseException.TooManyRequests
+							))
 							.onErrorResume(ex -> {
 								logger.error("page " + page + ": " + ex.getMessage(), ex);
 								return Mono.empty();
@@ -168,15 +187,17 @@ public class JiraClient {
 				.flatMap(issue -> {
 					Mono<Map<String, Object>> votesResult = webClient.get()
 							.uri("/issue/{id}/votes", issue.getId())
+							.accept(MediaType.APPLICATION_JSON)
 							.retrieve()
 							.bodyToMono(MAP_TYPE)
 							.timeout(Duration.ofSeconds(10))
 							.retry(3);
 					Mono<Map<String, Object>> commitsResult = webClient.get()
 							.uri(builder -> builder
-									.replacePath("jira/rest/dev-status/1.0/issue/detail")
+									.replacePath("rest/dev-status/1.0/issue/detail")
 									.query("issueId={id}&applicationType=github&dataType=repository")
 									.build(issue.getId()))
+							.accept(MediaType.APPLICATION_JSON)
 							.retrieve()
 							.bodyToMono(MAP_TYPE)
 							.timeout(Duration.ofSeconds(10))
@@ -215,6 +236,9 @@ public class JiraClient {
 						.bodyValue(Collections.singletonMap("body", entry.getValue()))
 						.retrieve()
 						.bodyToMono(Void.class)
+						.retryWhen(Retry.backoff(10, Duration.ofSeconds(5)).filter(
+							t -> t instanceof WebClientResponseException.TooManyRequests
+						))
 						.doOnError(WebClientResponseException.class,
 								ex -> logger.error(ex.getStatusCode() + ": " + ex.getResponseBodyAsString()))
 						.timeout(Duration.ofSeconds(10))
